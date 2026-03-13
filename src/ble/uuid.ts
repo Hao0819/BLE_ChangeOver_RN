@@ -1,0 +1,63 @@
+export const UUIDS = {
+  GENERIC_ACCESS: '1800',
+  DEVICE_NAME: '00002A00-0000-1000-8000-00805F9B34FB',
+  APPEARANCE: '2A01',
+
+  DEVICE_INFORMATION: '0000180a-0000-1000-8000-00805f9b34fb',
+  MANUFACTURER_NAME: '00002a29-0000-1000-8000-00805f9b34fb',
+  CLIENT_CHARACTERISTIC_CONFIG: '00002902-0000-1000-8000-00805f9b34fb',
+
+  CUSTOM_SERVICE: 'd0d4a968-78f9-4a9b-9abf-241115f50c62',
+  BLE_DATA: '4fe64fa0-5160-475a-9d39-6482f9fc0d14',
+  BLE_SETTING: '99e2de58-54f1-47a0-9aa7-5a58521e5934',
+} as const;
+
+export const HEADERS = {
+  STATUS_HEADER: 0xab,
+  SETTING_HEADER: 0xae,
+  SETTING_COMMAND: 0xc8,
+  ARABIC_COMMAND: 0x53,
+  SETTINGS_HEADER: 0x9a,
+  SELECT_HEADER: 0x32,
+} as const;
+
+export const DEFAULT_SETTINGS = {
+  SWITCHING_DELAY1: 0,
+  SWITCHING_DELAY2: 0,
+  CUTOFF_PERIOD1: 0,
+  CUTOFF_PERIOD2: 0,
+  RESERVED1: 0,
+  RESERVED2: 0,
+
+  CH1_MAXVOLT1: 0,
+  CH1_MAXVOLT2: 0,
+  CH1_MINVOLT1: 0,
+  CH1_MINVOLT2: 0,
+  CH1_MAXAMP1: 0,
+  CH1_MAXAMP2: 0,
+
+  CH2_MAXVOLT1: 0,
+  CH2_MAXVOLT2: 0,
+  CH2_MINVOLT1: 0,
+  CH2_MINVOLT2: 0,
+  CH2_MAXAMP1: 0,
+  CH2_MAXAMP2: 0,
+
+  CH3_MAXVOLT1: 0,
+  CH3_MAXVOLT2: 0,
+  CH3_MINVOLT1: 0,
+  CH3_MINVOLT2: 0,
+  CH3_MAXAMP1: 0,
+  CH3_MAXAMP2: 0,
+} as const;
+
+export function lookupUuidName(uuid: string, defaultName = 'Unknown'): string {
+  const normalized = uuid.toLowerCase();
+
+  const map: Record<string, string> = {
+    '0000180a-0000-1000-8000-00805f9b34fb': 'Device Information Service',
+    '00002a29-0000-1000-8000-00805f9b34fb': 'Manufacturer Name String',
+  };
+
+  return map[normalized] ?? defaultName;
+}
