@@ -23,17 +23,17 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Scanner'>;
 const TARGET_DEVICE_NAME = 'MyStarChangeOver';
 
 // EBQ Color Palette — white topbar style
-const WHITE      = '#FFFFFF';
-const BG         = '#F2F4F7';
-const BLUE       = '#1565C0';
-const TEXT_DARK  = '#1A1A2E';
+const WHITE = '#FFFFFF';
+const BG = '#F2F4F7';
+const BLUE = '#1565C0';
+const TEXT_DARK = '#1A1A2E';
 const TEXT_LIGHT = '#9AA0AD';
-const DIVIDER    = '#E8EAED';
-const ICON_BG    = '#E8EEF9';
+const DIVIDER = '#E8EAED';
+const ICON_BG = '#E8EEF9';
 
 export default function ScannerScreen({ navigation }: Props) {
-  const [devices, setDevices]           = useState<BleDeviceItem[]>([]);
-  const [isScanning, setIsScanning]     = useState(false);
+  const [devices, setDevices] = useState<BleDeviceItem[]>([]);
+  const [isScanning, setIsScanning] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const mountedRef = useRef(true);
@@ -66,27 +66,50 @@ export default function ScannerScreen({ navigation }: Props) {
 
   const startScanning = useCallback(async () => {
     try {
+      console.log('[Scanner] startScanning called');
       const granted = await requestBlePermissions();
+      console.log('[Scanner] granted:', granted);
       if (!granted) {
         Alert.alert('Permission Required', 'Bluetooth permissions are required.');
         return;
       }
       const bluetoothOn = await isBluetoothPoweredOn();
+      console.log('[Scanner] bluetoothOn:', bluetoothOn);
       if (!bluetoothOn) {
         Alert.alert('Bluetooth Off', 'Please turn on Bluetooth first.');
         return;
       }
-      bleManager.stopScan();
+
       setIsScanning(true);
       setDevices([]);
 
-      bleManager.startScan(
+      // ✅ 诊断模式：先全扫，不过滤名字
+      // 目的是看 iOS 到底能不能扫到设备，以及设备广播了哪些字段
+      // 等你拿到 log 后，再决定用 name / localName / serviceUUIDs 哪个来过滤
+      await bleManager.startScan(
         device => {
-          const name = device.name ?? device.localName ?? null;
-          if (!name || !name.toLowerCase().includes(TARGET_DEVICE_NAME.toLowerCase())) return;
+          // ✅ 打印所有原始字段，方便诊断 iOS 扫描问题
+          console.log('[Scanner][RAW]', {
+            id: device.id,
+            name: device.name,
+            localName: device.localName,
+            serviceUUIDs: device.serviceUUIDs,
+            isConnectable: device.isConnectable,
+            rssi: device.rssi,
+            hasManufacturerData: !!device.manufacturerData,
+            hasRawScanRecord: !!device.rawScanRecord,
+          });
+
+          // ✅ 用 localName 优先（iOS 有时 name 为 null 但 localName 有值）
+          const displayName = device.localName ?? device.name ?? 'Unknown Device';
+
+          // ✅ 暂时不过滤，显示所有扫到的设备
+          // 等确认 iOS 能扫到目标设备后，再加回下面这行过滤：
+          if (!displayName.toLowerCase().includes(TARGET_DEVICE_NAME.toLowerCase())) return;
+
           upsertDevice({
             id: device.id,
-            name,
+            name: displayName,
             localName: device.localName ?? null,
             address: device.id,
             rssi: device.rssi ?? null,
@@ -98,7 +121,12 @@ export default function ScannerScreen({ navigation }: Props) {
           if (mountedRef.current) setIsScanning(false);
           Alert.alert('Scan Error', String(error));
         },
-        { allowDuplicates: true },
+        {
+          allowDuplicates: false,
+          // serviceUUIDs: null  ← 先全扫，不按 UUID 过滤
+          // 等拿到 log 后，如果确认设备有广播 UUIDS.CUSTOM_SERVICE，再改成：
+          // serviceUUIDs: [UUIDS.CUSTOM_SERVICE],
+        },
       );
     } catch (error) {
       console.log('[Scanner] startScanning error =', error);
@@ -115,7 +143,6 @@ export default function ScannerScreen({ navigation }: Props) {
   }, [startScanning]);
 
   const handleConnect = useCallback((item: BleDeviceItem) => {
-    // ✅ Navigate immediately — ControllerScreen handles the connection
     bleManager.stopScan();
     setIsScanning(false);
     navigation.navigate('Controller', {
@@ -159,6 +186,11 @@ export default function ScannerScreen({ navigation }: Props) {
   useEffect(() => {
     mountedRef.current = true;
     void startScanning();
+
+    // ✅ 已删除 setInterval 重启扫描
+    // 原来每 10 秒 stop/start 一次，反而触发 iOS 节流，让扫描变更慢
+    // bleManager.startScan() 内部已经有 waitUntilPoweredOn + stopScan，不需要外部再重启
+
     return () => {
       mountedRef.current = false;
       bleManager.stopScan();
@@ -174,7 +206,7 @@ export default function ScannerScreen({ navigation }: Props) {
         disabled={connecting}
         activeOpacity={0.7}
       >
-        {/* Bluetooth icon — like picture 2 */}
+        {/* Bluetooth icon */}
         <View style={styles.iconWrap}>
           <MaterialCommunityIcons name="bluetooth" size={26} color={BLUE} />
         </View>
@@ -205,7 +237,7 @@ export default function ScannerScreen({ navigation }: Props) {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor={WHITE} />
 
-      {/* EBQ white top bar — no bluetooth icon */}
+      {/* EBQ white top bar */}
       <View style={styles.topBar}>
         <Text style={styles.topTitle}>BLE ChangeOver</Text>
         <View style={styles.topIcons}>
@@ -244,8 +276,9 @@ export default function ScannerScreen({ navigation }: Props) {
         ListEmptyComponent={
           <View style={styles.emptyWrap}>
             <MaterialCommunityIcons name="bluetooth-off" size={52} color={TEXT_LIGHT} />
+            {/* ✅ 改掉提示文字，因为现在是全扫模式 */}
             <Text style={styles.emptyText}>
-              {isScanning ? `Scanning for ${TARGET_DEVICE_NAME}...` : 'No devices found'}
+              {isScanning ? 'Scanning nearby BLE devices...' : 'No devices found'}
             </Text>
             <Text style={styles.emptySubText}>Pull down to refresh</Text>
           </View>
@@ -261,7 +294,6 @@ const styles = StyleSheet.create({
     backgroundColor: BG,
   },
 
-  // White top bar — EBQ style
   topBar: {
     height: 56,
     backgroundColor: WHITE,
@@ -295,7 +327,6 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
 
-  // List
   listContent: {
     paddingVertical: 6,
   },
@@ -305,7 +336,6 @@ const styles = StyleSheet.create({
     marginLeft: 76,
   },
 
-  // Device card — white, full width
   deviceCard: {
     backgroundColor: WHITE,
     flexDirection: 'row',
@@ -314,7 +344,6 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
 
-  // Round bluetooth icon — like picture 2
   iconWrap: {
     width: 44,
     height: 44,
@@ -358,7 +387,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
-  // Empty state
   emptyContainer: {
     flexGrow: 1,
     justifyContent: 'center',

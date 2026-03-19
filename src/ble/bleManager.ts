@@ -3,9 +3,10 @@ import { Buffer } from 'buffer';
 import { UUIDS } from './uuid';
 import type { BleCommand, CommandType } from './commands';
 
+// ✅ 改掉 nameFilter，改用 serviceUUIDs
 type ScanOptions = {
   allowDuplicates?: boolean;
-  nameFilter?: string;
+  serviceUUIDs?: string[] | null;
 };
 
 type NotifyCallback = (data: { bytes: number[]; hex: string }) => void;
@@ -40,16 +41,53 @@ class BleServiceManager {
     return this.connectedDevice?.name ?? this.connectedDevice?.localName ?? null;
   }
 
-  startScan(
+  // ✅ 等待蓝牙 PoweredOn 再扫描
+  // iOS 启动后 BLE stack 不是立刻可用，必须等 PoweredOn 才能扫描
+  private async waitUntilPoweredOn(timeoutMs = 10000): Promise<void> {
+    const currentState = await this.manager.state();
+    console.log('[BLE] current state:', currentState);
+
+    if (currentState === 'PoweredOn') {
+      return;
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      let subscription: Subscription | null = null;
+
+      const timer = setTimeout(() => {
+        subscription?.remove();
+        reject(new Error('Bluetooth is not PoweredOn'));
+      }, timeoutMs);
+
+      subscription = this.manager.onStateChange((state) => {
+        console.log('[BLE] state changed:', state);
+
+        if (state === 'PoweredOn') {
+          clearTimeout(timer);
+          subscription?.remove();
+          resolve();
+        }
+      }, true);
+    });
+  }
+
+  // ✅ 改成 async + 等 PoweredOn + 支持 serviceUUIDs 过滤
+  async startScan(
     onDeviceFound: (device: Device) => void,
     onError?: ErrorCallback,
     options?: ScanOptions,
-  ): void {
+  ): Promise<void> {
     const allowDuplicates = options?.allowDuplicates ?? false;
-    const nameFilter = options?.nameFilter?.trim().toLowerCase();
+    const serviceUUIDs = options?.serviceUUIDs ?? null;
+
+    await this.waitUntilPoweredOn();
+
+    this.stopScan();
+
+    console.log('[BLE] startScan:', { allowDuplicates, serviceUUIDs });
 
     this.manager.startDeviceScan(
-      null,
+      serviceUUIDs,
       { allowDuplicates },
       (error, device) => {
         if (error) {
@@ -59,13 +97,6 @@ class BleServiceManager {
 
         if (!device) {
           return;
-        }
-
-        if (nameFilter) {
-          const deviceName = (device.name ?? device.localName ?? '').toLowerCase();
-          if (!deviceName.includes(nameFilter)) {
-            return;
-          }
         }
 
         onDeviceFound(device);
@@ -104,31 +135,26 @@ class BleServiceManager {
       return false;
     }
   }
+
   async writeBleData(value: number[]): Promise<void> {
     await this.writeCharacteristic(UUIDS.BLE_DATA, value);
   }
 
-  // ✅ 加这个新方法
   async writeBleDataWithoutResponse(value: number[]): Promise<void> {
     await this.writeCharacteristicWithoutResponse(UUIDS.BLE_DATA, value);
   }
-
 
   // Fixed: added delay + retry mechanism to handle GATT_ERROR 133 on Android
   async connect(deviceId: string, retries = 3): Promise<Device> {
     console.log('[BLE] connect start:', deviceId);
 
-    // Stop scanning first
     this.stopScan();
 
-    // Wait for BLE stack to fully stop scanning before connecting
-    // This prevents race condition that causes errorCode: 2
     await new Promise<void>(resolve => setTimeout(() => resolve(), 600));
 
     this.removeNotifySubscription();
     this.removeDisconnectSubscription();
 
-    // Clean up existing connection if any
     if (this.connectedDevice) {
       try {
         const stillConnected = await this.manager.isDeviceConnected(this.connectedDevice.id);
@@ -142,7 +168,6 @@ class BleServiceManager {
       }
     }
 
-    // Retry loop
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
         console.log(`[BLE] connect attempt ${attempt}/${retries}`);
@@ -154,8 +179,6 @@ class BleServiceManager {
 
         console.log('[BLE] connected:', connected.id);
 
-        // Wait before discovering services to avoid Android GATT_ERROR 133
-        // The GATT layer needs time to fully initialize after connection
         await new Promise<void>(resolve => setTimeout(() => resolve(), 500));
 
         const discovered = await connected.discoverAllServicesAndCharacteristics();
@@ -186,7 +209,6 @@ class BleServiceManager {
       } catch (error: any) {
         console.log(`[BLE] connect attempt ${attempt} failed:`, error?.message);
 
-        // All retries exhausted, throw the error
         if (attempt === retries) {
           console.log('[BLE] connect failed after all retries:', JSON.stringify(error, null, 2));
           this.connectedDevice = null;
@@ -195,7 +217,6 @@ class BleServiceManager {
           throw error;
         }
 
-        // Wait before retrying to give the device time to reset
         console.log('[BLE] waiting 1000ms before retry...');
         await new Promise<void>(resolve => setTimeout(() => resolve(), 1000));
       }

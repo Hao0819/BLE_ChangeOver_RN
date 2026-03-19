@@ -28,6 +28,30 @@ export async function requestBlePermissions(): Promise<boolean> {
 }
 
 export async function isBluetoothPoweredOn(): Promise<boolean> {
-  const state = await bleManager.getManager().state();
-  return state === 'PoweredOn';
+  return new Promise(resolve => {
+    // 先检查当前状态
+    bleManager.getManager().state().then(state => {
+      if (state === 'PoweredOn') {
+        resolve(true);
+        return;
+      }
+      // 如果还不是 PoweredOn，监听状态变化，等待最多 5 秒
+      const timeout = setTimeout(() => {
+        subscription.remove();
+        resolve(false);
+      }, 5000);
+
+      const subscription = bleManager.getManager().onStateChange(newState => {
+        if (newState === 'PoweredOn') {
+          clearTimeout(timeout);
+          subscription.remove();
+          resolve(true);
+        } else if (newState === 'PoweredOff' || newState === 'Unauthorized') {
+          clearTimeout(timeout);
+          subscription.remove();
+          resolve(false);
+        }
+      }, true);
+    });
+  });
 }

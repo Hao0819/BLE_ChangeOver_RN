@@ -31,17 +31,16 @@ import {
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Controller'>;
 
-// EBQ Color Palette — white topbar
-const WHITE        = '#FFFFFF';
-const BG           = '#F2F4F7';
-const BLUE         = '#1565C0';
-const CARD_BG      = '#FFFFFF';
-const CARD_BORDER  = '#E2E6EC';
+const WHITE = '#FFFFFF';
+const BG = '#F2F4F7';
+const BLUE = '#1565C0';
+const CARD_BG = '#FFFFFF';
+const CARD_BORDER = '#E2E6EC';
 const VALUE_BORDER = '#97A2C0';
-const VALUE_BG     = '#F0F2F7';
-const TEXT_DARK    = '#1A1A2E';
-const TEXT_MID     = '#5A6170';
-const DIVIDER      = '#E8EAED';
+const VALUE_BG = '#F0F2F7';
+const TEXT_DARK = '#1A1A2E';
+const TEXT_MID = '#5A6170';
+const DIVIDER = '#E8EAED';
 
 function numberToInput(value: number): string {
   return String(value ?? 0);
@@ -53,18 +52,18 @@ function parseNumberInput(value: string): number {
 }
 
 export default function ControllerScreen({ navigation, route }: Props) {
-  // ✅ Fixed TS error: use ?. instead of || {}
-  const deviceId   = route.params?.deviceId;
+  const deviceId = route.params?.deviceId;
   const deviceName = route.params?.deviceName;
 
-  const [isConnected, setIsConnected]           = useState(false);
-  const [connectionText, setConnectionText]     = useState('Disconnected');
-  const [arabicEnabled, setArabicEnabled]       = useState(false);
-  const [showDropdown, setShowDropdown]         = useState(false);
-  const [deviceState, setDeviceState]           = useState<DeviceState>(createEmptyDeviceState());
+  const [isConnected, setIsConnected] = useState(false);
+  const [connectionText, setConnectionText] = useState('Disconnected');
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [arabicEnabled, setArabicEnabled] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [deviceState, setDeviceState] = useState<DeviceState>(createEmptyDeviceState());
   const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [showArabicModal, setShowArabicModal]     = useState(false);
-  const [arabicText, setArabicText]               = useState('');
+  const [showArabicModal, setShowArabicModal] = useState(false);
+  const [arabicText, setArabicText] = useState('');
   const mountedRef = useRef(true);
 
   const [form, setForm] = useState({
@@ -92,17 +91,17 @@ export default function ControllerScreen({ navigation, route }: Props) {
   const syncFormFromSettings = useCallback((settings: DeviceSettings) => {
     setForm({
       switchingDelay: numberToInput(settings.switchingDelay),
-      cutoffPeriod:   numberToInput(settings.cutoffPeriod),
-      threshold:      numberToInput(settings.threshold),
-      ch1MaxVolts:    numberToInput(settings.ch1MaxVolts),
-      ch1MinVolts:    numberToInput(settings.ch1MinVolts),
-      ch1MaxAmp:      numberToInput(settings.ch1MaxAmp),
-      ch2MaxVolts:    numberToInput(settings.ch2MaxVolts),
-      ch2MinVolts:    numberToInput(settings.ch2MinVolts),
-      ch2MaxAmp:      numberToInput(settings.ch2MaxAmp),
-      ch3MaxVolts:    numberToInput(settings.ch3MaxVolts),
-      ch3MinVolts:    numberToInput(settings.ch3MinVolts),
-      ch3MaxAmp:      numberToInput(settings.ch3MaxAmp),
+      cutoffPeriod: numberToInput(settings.cutoffPeriod),
+      threshold: numberToInput(settings.threshold),
+      ch1MaxVolts: numberToInput(settings.ch1MaxVolts),
+      ch1MinVolts: numberToInput(settings.ch1MinVolts),
+      ch1MaxAmp: numberToInput(settings.ch1MaxAmp),
+      ch2MaxVolts: numberToInput(settings.ch2MaxVolts),
+      ch2MinVolts: numberToInput(settings.ch2MinVolts),
+      ch2MaxAmp: numberToInput(settings.ch2MaxAmp),
+      ch3MaxVolts: numberToInput(settings.ch3MaxVolts),
+      ch3MinVolts: numberToInput(settings.ch3MinVolts),
+      ch3MaxAmp: numberToInput(settings.ch3MaxAmp),
     });
   }, []);
 
@@ -115,6 +114,41 @@ export default function ControllerScreen({ navigation, route }: Props) {
     }
   }, []);
 
+  // Shared connect logic
+  const connectAndMonitor = useCallback(async (id: string) => {
+    setIsConnecting(true);
+    setConnectionText('Connecting...');
+    try {
+      const alreadyConnected = await bleManager.isConnected(id);
+      if (!alreadyConnected) {
+        await bleManager.connect(id);
+      }
+      if (!mountedRef.current) return;
+
+      bleManager.monitorBleData(
+        ({ bytes }) => {
+          if (mountedRef.current) setDeviceState(prev => parseIncomingPacket(bytes, prev));
+        },
+        error => { console.log('[Controller] monitorBleData error:', error); },
+      );
+
+      if (!mountedRef.current) return;
+      setIsConnected(true);
+      setConnectionText('Connected');
+      await requestLatestData();
+    } catch (error) {
+      console.log('[Controller] connectAndMonitor error:', error);
+      if (mountedRef.current) {
+        setIsConnected(false);
+        setConnectionText('Disconnected');
+        Alert.alert('Connection Failed', 'Could not connect to device. Please try again.');
+      }
+    } finally {
+      if (mountedRef.current) setIsConnecting(false);
+    }
+  }, [requestLatestData]);
+
+  // Back arrow — disconnect and go back
   const handleDisconnect = useCallback(async () => {
     try {
       await bleManager.disconnect();
@@ -158,21 +192,26 @@ export default function ControllerScreen({ navigation, route }: Props) {
     setShowArabicModal(true);
   }, []);
 
-  // ✅ Disconnect only — stays on page, shows Disconnected status (like original app)
-  const handleDisconnectFromMenu = useCallback(async () => {
+  // ✅ Single toggle: Connect when disconnected, Disconnect when connected
+  const handleConnectionToggle = useCallback(async () => {
     setShowDropdown(false);
-    try {
-      await bleManager.disconnect();
-    } catch (error) {
-      console.log('[Controller] disconnect error:', error);
-    } finally {
-      if (mountedRef.current) {
-        setIsConnected(false);
-        setConnectionText('Disconnected');
-        setDeviceState(clearDeviceState());
+    if (isConnected) {
+      try {
+        await bleManager.disconnect();
+      } catch (error) {
+        console.log('[Controller] disconnect error:', error);
+      } finally {
+        if (mountedRef.current) {
+          setIsConnected(false);
+          setConnectionText('Disconnected');
+          setDeviceState(clearDeviceState());
+        }
       }
+    } else {
+      if (!deviceId) return;
+      await connectAndMonitor(deviceId);
     }
-  }, []);
+  }, [isConnected, deviceId, connectAndMonitor]);
 
   const handleExitApp = useCallback(() => {
     setShowDropdown(false);
@@ -185,17 +224,17 @@ export default function ControllerScreen({ navigation, route }: Props) {
   const handleSaveSettings = useCallback(async () => {
     const settings: DeviceSettings = {
       switchingDelay: parseNumberInput(form.switchingDelay),
-      cutoffPeriod:   parseNumberInput(form.cutoffPeriod),
-      threshold:      parseNumberInput(form.threshold),
-      ch1MaxVolts:    parseNumberInput(form.ch1MaxVolts),
-      ch1MinVolts:    parseNumberInput(form.ch1MinVolts),
-      ch1MaxAmp:      parseNumberInput(form.ch1MaxAmp),
-      ch2MaxVolts:    parseNumberInput(form.ch2MaxVolts),
-      ch2MinVolts:    parseNumberInput(form.ch2MinVolts),
-      ch2MaxAmp:      parseNumberInput(form.ch2MaxAmp),
-      ch3MaxVolts:    parseNumberInput(form.ch3MaxVolts),
-      ch3MinVolts:    parseNumberInput(form.ch3MinVolts),
-      ch3MaxAmp:      parseNumberInput(form.ch3MaxAmp),
+      cutoffPeriod: parseNumberInput(form.cutoffPeriod),
+      threshold: parseNumberInput(form.threshold),
+      ch1MaxVolts: parseNumberInput(form.ch1MaxVolts),
+      ch1MinVolts: parseNumberInput(form.ch1MinVolts),
+      ch1MaxAmp: parseNumberInput(form.ch1MaxAmp),
+      ch2MaxVolts: parseNumberInput(form.ch2MaxVolts),
+      ch2MinVolts: parseNumberInput(form.ch2MinVolts),
+      ch2MaxAmp: parseNumberInput(form.ch2MaxAmp),
+      ch3MaxVolts: parseNumberInput(form.ch3MaxVolts),
+      ch3MinVolts: parseNumberInput(form.ch3MinVolts),
+      ch3MaxAmp: parseNumberInput(form.ch3MaxAmp),
     };
     if (settings.ch1MaxVolts > 300 || settings.ch2MaxVolts > 300 || settings.ch3MaxVolts > 300) {
       Alert.alert('Invalid Input', 'Vmax is greater than 300V!'); return;
@@ -235,39 +274,23 @@ export default function ControllerScreen({ navigation, route }: Props) {
   useEffect(() => {
     mountedRef.current = true;
     navigation.setOptions({ headerShown: false });
-    const setup = async () => {
-      if (!deviceId) return;
-      try {
-        const alreadyConnected = await bleManager.isConnected(deviceId);
-        if (!alreadyConnected) {
-          if (mountedRef.current) setConnectionText('Connecting...');
-          await bleManager.connect(deviceId);
-        }
-        if (!mountedRef.current) return;
-        bleManager.monitorBleData(
-          ({ bytes }) => { if (mountedRef.current) setDeviceState(prev => parseIncomingPacket(bytes, prev)); },
-          error => { console.log('[Controller] monitorBleData error:', error); },
-        );
-        if (!mountedRef.current) return;
-        setIsConnected(true);
-        setConnectionText('Connected');
-        await requestLatestData();
-      } catch (error) {
-        console.log('[Controller] init error:', error);
-        if (mountedRef.current) { setIsConnected(false); setConnectionText('Disconnected'); }
-      }
-    };
-    void setup();
+    if (deviceId) void connectAndMonitor(deviceId);
     return () => { mountedRef.current = false; bleManager.stopMonitorBleData(); };
-  }, [deviceId, navigation, requestLatestData]);
+  }, [deviceId, navigation, connectAndMonitor]);
 
   const activeChannel = deviceState.telemetry.channel;
+
+  const connectionMenuLabel = isConnecting
+    ? 'Connecting...'
+    : isConnected
+      ? 'Disconnect'
+      : 'Connect';
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor={WHITE} />
 
-      {/* White top bar — EBQ style */}
+      {/* Top bar */}
       <View style={styles.topHeader}>
         <TouchableOpacity onPress={() => void handleDisconnect()} style={styles.headerSide}>
           <Text style={styles.headerBack}>←</Text>
@@ -296,10 +319,25 @@ export default function ControllerScreen({ navigation, route }: Props) {
                   <Text style={styles.dropdownText}>Arabic</Text>
                 </TouchableOpacity>
                 <View style={styles.dropdownDivider} />
-                {/* ✅ Disconnect option */}
-                <TouchableOpacity style={styles.dropdownItem} onPress={handleDisconnectFromMenu}>
-                  <Text style={[styles.dropdownText, styles.dropdownTextRed]}>Disconnect</Text>
+
+                {/* ✅ Toggles between Connect (green) and Disconnect (red) */}
+                <TouchableOpacity
+                  style={styles.dropdownItem}
+                  onPress={() => void handleConnectionToggle()}
+                  disabled={isConnecting}
+                >
+                  <Text style={[
+                    styles.dropdownText,
+                    isConnecting
+                      ? styles.dropdownTextGray
+                      : isConnected
+                        ? styles.dropdownTextRed
+                        : styles.dropdownTextGreen,
+                  ]}>
+                    {connectionMenuLabel}
+                  </Text>
                 </TouchableOpacity>
+
                 <View style={styles.dropdownDivider} />
                 <TouchableOpacity style={styles.dropdownItem} onPress={handleExitApp}>
                   <Text style={styles.dropdownText}>Exit Apps</Text>
@@ -348,10 +386,10 @@ export default function ControllerScreen({ navigation, route }: Props) {
 
         {/* Info grid */}
         <View style={styles.infoGrid}>
-          <InfoCard title={labels.currentReading}  value={deviceState.telemetry.current.toFixed(2)} unit="A" />
-          <InfoCard title={labels.outputVoltage}   value={deviceState.telemetry.vout.toFixed(1)}    unit="V" />
+          <InfoCard title={labels.currentReading} value={deviceState.telemetry.current.toFixed(2)} unit="A" />
+          <InfoCard title={labels.outputVoltage} value={deviceState.telemetry.vout.toFixed(1)} unit="V" />
           <InfoCard title={labels.selectedChannel} value={String(deviceState.telemetry.channel)} />
-          <InfoCard title={labels.overCurrent}     value={String(deviceState.telemetry.overCurrent)} />
+          <InfoCard title={labels.overCurrent} value={String(deviceState.telemetry.overCurrent)} />
         </View>
 
       </ScrollView>
@@ -363,18 +401,18 @@ export default function ControllerScreen({ navigation, route }: Props) {
             <Text style={styles.modalTitle}>Settings</Text>
             <ScrollView showsVerticalScrollIndicator={false}>
               {([
-                ['Switch Delay',  'switchingDelay'],
+                ['Switch Delay', 'switchingDelay'],
                 ['Cutoff Period', 'cutoffPeriod'],
-                ['Threshold',     'threshold'],
-                ['CH1 Max V',     'ch1MaxVolts'],
-                ['CH1 Min V',     'ch1MinVolts'],
-                ['CH1 Max A',     'ch1MaxAmp'],
-                ['CH2 Max V',     'ch2MaxVolts'],
-                ['CH2 Min V',     'ch2MinVolts'],
-                ['CH2 Max A',     'ch2MaxAmp'],
-                ['CH3 Max V',     'ch3MaxVolts'],
-                ['CH3 Min V',     'ch3MinVolts'],
-                ['CH3 Max A',     'ch3MaxAmp'],
+                ['Threshold', 'threshold'],
+                ['CH1 Max V', 'ch1MaxVolts'],
+                ['CH1 Min V', 'ch1MinVolts'],
+                ['CH1 Max A', 'ch1MaxAmp'],
+                ['CH2 Max V', 'ch2MaxVolts'],
+                ['CH2 Min V', 'ch2MinVolts'],
+                ['CH2 Max A', 'ch2MaxAmp'],
+                ['CH3 Max V', 'ch3MaxVolts'],
+                ['CH3 Min V', 'ch3MinVolts'],
+                ['CH3 Max A', 'ch3MaxAmp'],
               ] as [string, keyof typeof form][]).map(([label, key]) => (
                 <InputRow
                   key={key}
@@ -456,7 +494,6 @@ function InputRow({ label, value, onChangeText }: { label: string; value: string
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: BG },
 
-  // White top bar — EBQ style
   topHeader: {
     height: 56,
     backgroundColor: WHITE,
@@ -477,7 +514,6 @@ const styles = StyleSheet.create({
   headerMenuBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   headerMenuDots: { color: TEXT_DARK, fontSize: 26, fontWeight: '700', lineHeight: 28 },
 
-  // Dropdown
   dropdownOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 100 },
   dropdownMenu: {
     position: 'absolute', top: 56, right: 8, backgroundColor: WHITE,
@@ -486,10 +522,11 @@ const styles = StyleSheet.create({
   },
   dropdownItem: { paddingVertical: 14, paddingHorizontal: 20 },
   dropdownText: { fontSize: 15, color: '#222' },
-  dropdownTextRed: { color: '#EF4444' },   // ✅ Red for Disconnect
+  dropdownTextRed: { color: '#EF4444' },
+  dropdownTextGreen: { color: '#16A34A' },
+  dropdownTextGray: { color: '#9CA3AF' },
   dropdownDivider: { height: 1, backgroundColor: '#EEE' },
 
-  // Content
   content: { padding: 12, paddingBottom: 28 },
   nameRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   smallName: { fontSize: 12, color: '#6B7280', flex: 1, marginRight: 8 },
@@ -499,7 +536,6 @@ const styles = StyleSheet.create({
   connectedDotOff: { backgroundColor: '#9CA3AF' },
   connectedText: { fontSize: 12, color: '#6B7280' },
 
-  // Blocks
   block: { backgroundColor: CARD_BG, borderRadius: 8, borderWidth: 1, borderColor: CARD_BORDER, padding: 12, marginBottom: 10 },
   blockTitle: { fontSize: 14, color: TEXT_DARK, fontWeight: '600' },
   arabicHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
@@ -508,7 +544,6 @@ const styles = StyleSheet.create({
   hexIconText: { color: WHITE, fontSize: 11, fontWeight: '700' },
   hexText: { flex: 1, fontSize: 11, color: '#9CA3AF', lineHeight: 16 },
 
-  // Channels
   channelRow: { alignItems: 'center', marginBottom: 14 },
   channelTitle: { fontSize: 12, fontWeight: '700', color: TEXT_MID, marginBottom: 6 },
   channelControls: { flexDirection: 'row', alignItems: 'center' },
@@ -520,7 +555,6 @@ const styles = StyleSheet.create({
   statusOff: { backgroundColor: '#EF4444' },
   statusBadgeText: { color: WHITE, fontWeight: '700', fontSize: 14 },
 
-  // Info grid
   infoGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
   infoCard: { width: '49%', backgroundColor: CARD_BG, borderRadius: 8, borderWidth: 1, borderColor: CARD_BORDER, paddingVertical: 12, paddingHorizontal: 10, marginBottom: 10, alignItems: 'center' },
   infoTitle: { fontSize: 12, color: TEXT_MID, marginBottom: 8, textAlign: 'center' },
@@ -529,7 +563,6 @@ const styles = StyleSheet.create({
   infoValueText: { fontSize: 16, color: TEXT_DARK, fontWeight: '500' },
   infoUnit: { marginLeft: 8, fontSize: 20, color: '#6B7280' },
 
-  // Modal
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 18 },
   modalCard: { backgroundColor: WHITE, borderRadius: 16, padding: 16, maxHeight: '85%' },
   modalTitle: { fontSize: 20, fontWeight: '700', color: TEXT_DARK, marginBottom: 12 },

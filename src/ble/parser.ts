@@ -8,7 +8,7 @@ import {
 } from '../types/device';
 
 const STATUS_HEADER = 0xab;   // 171
-const SETTING_HEADER = 0xad;  // 173
+const SETTING_HEADER = 0xad;
 
 function toVolts(lsb: number, msb: number): number {
   return (lsb + msb * 256) / 10.0;
