@@ -26,16 +26,6 @@ BLE ChangeOver allows engineers and technicians to wirelessly connect to the MyS
 
 ---
 
-## Screenshots
-
-> _Add your screenshots here_
-
-| Scanner Screen | Controller Screen | Settings Modal |
-|:-:|:-:|:-:|
-| ![scanner](./screenshots/scanner.png) | ![controller](./screenshots/controller.png) | ![settings](./screenshots/settings.png) |
-
----
-
 ## Tech Stack
 
 | Library | Purpose |
