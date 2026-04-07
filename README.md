@@ -1,97 +1,50 @@
 # BLE ChangeOver
 
-A React Native mobile application for monitoring and controlling a BLE (Bluetooth Low Energy) changeover device — **MyStarChangeOver**.
+A React Native mobile application for monitoring and controlling the **MyStarChangeOver** automatic transfer switch (ATS) device via Bluetooth Low Energy (BLE).
+
+---
+
+## Overview
+
+BLE ChangeOver allows engineers and technicians to wirelessly connect to the MyStarChangeOver hardware device and:
+
+- Monitor real-time voltage and current across three power channels
+- Configure protection thresholds and switching parameters
+- Send Arabic text to the device's display
+- View live telemetry and device status
 
 ---
 
 ## Features
 
-- Scan and discover nearby BLE devices
-- Connect to `MyStarChangeOver` device
-- Real-time monitoring of channel voltages, current, and output voltage
-- View and update device settings
-- Arabic language support
-- Send Arabic text to device display
+- 🔵 **BLE Device Scanner** — Scans and lists nearby `MyStarChangeOver` devices
+- ⚡ **Real-time Telemetry** — Live voltage (CH1/CH2/CH3), output current, and active channel display
+- ⚙️ **Settings Control** — Configure switching delay, cutoff period, voltage limits, and current limits per channel
+- 🌐 **Arabic Language Support** — Toggle Arabic UI labels and send Arabic text to the device LCD
+- 🔒 **Input Validation** — Guards against out-of-range values (e.g. Vmax > 300V, Vmin < 100V, Amax > 100A)
+- 📡 **Raw Data Inspector** — View raw BLE data and settings packets in hex format
 
 ---
 
-## Screens
+## Screenshots
 
-### Scanner Screen
-- Automatically scans for BLE devices on launch
-- Displays device name, MAC address, and RSSI signal strength
-- Tap a device to navigate immediately to Controller Screen
-- Pull down to refresh scan
+> _Add your screenshots here_
 
-### Controller Screen
-- Shows live telemetry: Channel 1/2/3 voltage, ON/OFF status
-- Displays Current Reading, Output Voltage, Selected Channel, Over Current
-- Raw BLE data hex display (data + settings packets)
-- Arabic language toggle
-- Three-dot menu (⋮) with: Refresh, Setting, Arabic, Disconnect, Exit Apps
+| Scanner Screen | Controller Screen | Settings Modal |
+|:-:|:-:|:-:|
+| ![scanner](./screenshots/scanner.png) | ![controller](./screenshots/controller.png) | ![settings](./screenshots/settings.png) |
 
 ---
 
-## Requirements
+## Tech Stack
 
-- Node.js >= 18
-- React Native >= 0.73
-- Android 6.0+ / iOS 13+
-- Physical device (BLE does not work on emulator)
-
-### Dependencies
-
-```
-@react-navigation/native
-@react-navigation/native-stack
-react-native-ble-plx
-react-native-vector-icons
-```
-
----
-
-## Installation
-
-```bash
-# 1. Clone the repository
-git clone https://github.com/yourname/BLE_ChangeOver_RN.git
-cd BLE_ChangeOver_RN
-
-# 2. Install dependencies
-npm install
-
-# 3. Install iOS pods (iOS only)
-cd ios && pod install && cd ..
-
-# 4. Run on Android
-npx react-native run-android
-
-# 5. Run on iOS
-npx react-native run-ios
-```
-
----
-
-## Permissions
-
-### Android
-Add to `AndroidManifest.xml`:
-```xml
-<uses-permission android:name="android.permission.BLUETOOTH" />
-<uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
-<uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
-<uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-```
-
-### iOS
-Add to `Info.plist`:
-```xml
-<key>NSBluetoothAlwaysUsageDescription</key>
-<string>This app uses Bluetooth to connect to BLE devices.</string>
-<key>NSLocationWhenInUseUsageDescription</key>
-<string>Location is required for BLE scanning.</string>
-```
+| Library | Purpose |
+|---|---|
+| React Native | Cross-platform mobile framework (iOS & Android) |
+| React Navigation (Native Stack) | Screen navigation |
+| react-native-ble-plx | Bluetooth Low Energy communication |
+| react-native-vector-icons | UI icons (MaterialCommunityIcons) |
+| Custom BLE Protocol | Binary command building and packet parsing |
 
 ---
 
@@ -100,49 +53,108 @@ Add to `Info.plist`:
 ```
 src/
 ├── ble/
-│   ├── bleManager.ts       # BLE connection & scan logic
-│   ├── commands.ts         # BLE command builders
-│   └── parser.ts           # Incoming packet parser
-├── navigation/
-│   └── AppNavigator.tsx    # Stack navigator
+│   ├── bleManager.ts        # BLE connection, scan, read/write logic
+│   ├── commands.ts          # Binary command builders (settings, Arabic text)
+│   └── parser.ts            # Incoming BLE packet parser
 ├── screens/
-│   ├── SplashScreen.tsx
-│   ├── ScannerScreen.tsx
-│   └── ControllerScreen.tsx
+│   ├── ScannerScreen.tsx    # BLE device discovery screen
+│   └── ControllerScreen.tsx # Device monitoring and control screen
 ├── types/
-│   ├── device.ts           # Device & telemetry types
-│   └── navigation.ts       # Route param types
+│   ├── device.ts            # DeviceState, DeviceSettings, BleDeviceItem types
+│   └── navigation.ts        # RootStackParamList navigation types
 └── utils/
-    └── permissions.ts      # BLE permission helpers
+    └── permissions.ts       # BLE & location permission helpers
 ```
 
 ---
 
-## BLE Protocol
+## Getting Started
 
-| Packet Header | Type     | Description          |
-|---------------|----------|----------------------|
-| `0xAB`        | Data     | Telemetry packet     |
-| `0xAD`        | Settings | Settings packet      |
-| `0xAE, 0xC8`  | Command  | Request settings     |
+### Prerequisites
+
+- Node.js >= 18
+- React Native CLI environment set up ([guide](https://reactnative.dev/docs/environment-setup))
+- Android Studio (for Android) or Xcode (for iOS)
+- Physical device with Bluetooth (BLE scanning does not work on emulators)
+
+### Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/your-org/ble-changeover.git
+cd ble-changeover
+
+# Install dependencies
+npm install
+
+# iOS only — install pods
+cd ios && pod install && cd ..
+```
+
+### Running the App
+
+```bash
+# Android
+npm run android
+
+# iOS
+npm run ios
+```
 
 ---
 
-## Device Settings
+## Permissions
 
-Configurable via the **Setting** menu:
+### Android
 
-| Parameter      | Description                        |
-|----------------|------------------------------------|
-| Switch Delay   | Delay before channel switching (s) |
-| Cutoff Period  | Cutoff period duration (s)         |
-| Threshold      | Threshold percentage (max 100)     |
-| CH1/2/3 Max V  | Maximum voltage per channel (≤300V)|
-| CH1/2/3 Min V  | Minimum voltage per channel (≥100V)|
-| CH1/2/3 Max A  | Maximum current per channel (≤100A)|
+The following permissions are required in `AndroidManifest.xml`:
+
+```xml
+<uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+<uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+```
+
+### iOS
+
+Add the following keys to `Info.plist`:
+
+```xml
+<key>NSBluetoothAlwaysUsageDescription</key>
+<string>This app uses Bluetooth to connect to the ChangeOver device.</string>
+<key>NSLocationWhenInUseUsageDescription</key>
+<string>Location access is required for BLE scanning.</string>
+```
+
+---
+
+## Device Settings Reference
+
+| Parameter | Valid Range | Description |
+|---|---|---|
+| Switch Delay | — | Delay before switching channels (ms) |
+| Cutoff Period | — | Duration before cutoff is triggered |
+| Threshold | 0 – 100 | Sensitivity threshold |
+| CH1/CH2/CH3 Max Volts | ≤ 300 V | Upper voltage limit per channel |
+| CH1/CH2/CH3 Min Volts | ≥ 100 V | Lower voltage limit per channel |
+| CH1/CH2/CH3 Max Amps | ≤ 100 A | Maximum current per channel |
+
+---
+
+## Target Device
+
+**Device Name:** `MyStarChangeOver`
+
+The app scans for BLE devices whose name matches `MyStarChangeOver`. Ensure your hardware is powered on and advertising before scanning.
 
 ---
 
 ## License
 
-MIT
+This project is proprietary. All rights reserved.
+
+---
+
+## Contact
+
+For support or inquiries, please contact the development team.
